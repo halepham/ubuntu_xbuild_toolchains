@@ -5,10 +5,10 @@ Toolchain files for **cross-compiling workspaces for ARM64
 cross-build Docker container, where this repo is checked out at
 `/home/ubuntu/toolchains` and kept in sync with upstream on container start.
 
-Targets the Renesas RZ/V boards:
+Targets boards:
 
-- **RZ/V2H** - Cortex-A55 (`v2h_cross.cmake`)
-- **RZ/V4H** - Cortex-A76 (`v4h_cross.cmake`)
+- **RZ/V2H RDK** - Cortex-A55 (`v2h_cross.cmake`)
+- **RCar/V4H Sparrow Hawk** - Cortex-A76 (`v4h_cross.cmake`)
 
 ## Contents
 
