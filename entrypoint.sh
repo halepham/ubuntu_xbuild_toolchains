@@ -20,12 +20,8 @@ for pair in \
   [ -f "$src" ] && sudo ln -sf "$src" "$dst"
 done
 
-# === Ensure helper scripts are executable ===
-sudo chmod +x "$TOOLCHAIN_DIR/sysroot-fix.py" "$TOOLCHAIN_DIR/sysroot-rosdep-install.sh" 2>/dev/null || true
-
 if [ -d "$TOOLCHAIN_DIR/.git" ]; then
   cd "$TOOLCHAIN_DIR"
-  git remote add origin https://github.com/renesas-rdk/ubuntu_xbuild_toolchains.git 2>/dev/null || true
   # Set git identity before any commit
   git config user.email "container@local" 2>/dev/null || true
   git config user.name "Container" 2>/dev/null || true
@@ -33,6 +29,9 @@ if [ -d "$TOOLCHAIN_DIR/.git" ]; then
     if ! git diff --quiet HEAD 2>/dev/null; then
       echo "[WARN] Local toolchain has uncommitted changes — skipping auto-update."
       echo "[WARN] Container will continue normally — user must resolve manually."
+    elif ! git diff --quiet HEAD origin/main 2>/dev/null; then
+      echo "[WARN] Local and remote toolchain diverged — skipping auto-update."
+      echo "[WARN] User must reset or merge manually before updates can be applied."
     else
       echo "[INFO] Toolchain updates found. Applying..."
       rm -f /tmp/settings.json.bak
@@ -47,6 +46,9 @@ if os.path.isfile(path):
     with open(path) as f: new = json.load(f)
 else:
     new = {}
+# Preserve user's board connection config across auto-update overlay.
+# Remote .vscode/settings.json may have different/default values;
+# we restore these fields so user keeps their target board settings.
 PRESERVED = ["TARGET_IP","TARGET_GDB_PORT","TARGET_USER","TARGET_PASSWORD",
              "TARGET_ROS2_WS","NODE_PACKAGE_NAME","NODE_EXECUTABLE_NAME",
              "LAUNCH_PACKAGE_NAME","LAUNCH_FILE_NAME"]
@@ -63,8 +65,6 @@ with open(path, "w") as f: json.dump(new, f, indent=4)
         V2H) [ -f v2h_cross.cmake ] && mv -f v2h_cross.cmake cross.cmake; rm -f v4h_cross.cmake ;;
         V4H) [ -f v4h_cross.cmake ] && mv -f v4h_cross.cmake cross.cmake; rm -f v2h_cross.cmake ;;
       esac
-      # Ensure executable after git archive overwrite
-      sudo chmod +x "$TOOLCHAIN_DIR/sysroot-fix.py" "$TOOLCHAIN_DIR/sysroot-rosdep-install.sh" 2>/dev/null || true
       git add -A
       git commit -m "snapshot $(date +%Y%m%d-%H%M%S)" --allow-empty
       echo "[INFO] Toolchain synchronized."
