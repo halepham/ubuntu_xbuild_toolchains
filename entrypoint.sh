@@ -9,9 +9,26 @@ echo "DNS updated in sysroot."
 
 TOOLCHAIN_DIR="${TOOLCHAINS_WS:-/home/ubuntu/toolchains}"
 
+# === Symlink helper scripts (always, before auto-update) ===
+for pair in \
+  "arm64-chroot.sh:arm64-chroot" \
+  "sysroot-rosdep-install.sh:sysroot-rosdep-install" \
+  "sysroot-fix.py:sysroot-fix" \
+  "cross-colcon-build.sh:cross-colcon-build"; do
+  src="$TOOLCHAIN_DIR/${pair%:*}"
+  dst="/usr/local/bin/${pair#*:}"
+  [ -f "$src" ] && sudo ln -sf "$src" "$dst"
+done
+
+# === Ensure helper scripts are executable ===
+sudo chmod +x "$TOOLCHAIN_DIR/sysroot-fix.py" "$TOOLCHAIN_DIR/sysroot-rosdep-install.sh" 2>/dev/null || true
+
 if [ -d "$TOOLCHAIN_DIR/.git" ]; then
   cd "$TOOLCHAIN_DIR"
   git remote add origin https://github.com/renesas-rdk/ubuntu_xbuild_toolchains.git 2>/dev/null || true
+  # Set git identity before any commit
+  git config user.email "container@local" 2>/dev/null || true
+  git config user.name "Container" 2>/dev/null || true
   if git remote get-url origin >/dev/null 2>&1 && timeout 10 git fetch origin main >/dev/null 2>&1 && git rev-parse origin/main >/dev/null 2>&1; then
     if ! git diff --quiet HEAD 2>/dev/null; then
       echo "[WARN] Local toolchain has uncommitted changes — skipping auto-update."
@@ -40,29 +57,21 @@ with open(path, "w") as f: json.dump(new, f, indent=4)
         rm /tmp/settings.json.bak
       fi
       grep -qxF "sysroot-fix-append.yaml" .gitignore 2>/dev/null || echo "sysroot-fix-append.yaml" >> .gitignore
-      git add -A
-      git commit -m "snapshot $(date +%Y%m%d-%H%M%S)" --allow-empty
+      # Normalize product cmake files before snapshot
       product="${PRODUCT:-V2H}"
       case "$product" in
         V2H) [ -f v2h_cross.cmake ] && mv -f v2h_cross.cmake cross.cmake; rm -f v4h_cross.cmake ;;
         V4H) [ -f v4h_cross.cmake ] && mv -f v4h_cross.cmake cross.cmake; rm -f v2h_cross.cmake ;;
       esac
+      # Ensure executable after git archive overwrite
+      sudo chmod +x "$TOOLCHAIN_DIR/sysroot-fix.py" "$TOOLCHAIN_DIR/sysroot-rosdep-install.sh" 2>/dev/null || true
+      git add -A
+      git commit -m "snapshot $(date +%Y%m%d-%H%M%S)" --allow-empty
       echo "[INFO] Toolchain synchronized."
       /usr/local/bin/sysroot-fix || echo "[WARN] sysroot-fix failed, skipping."
     fi
   fi
 fi
-
-# Symlink helper scripts to /usr/local/bin (auto-update via toolchain changes)
-for pair in \
-  "arm64-chroot.sh:arm64-chroot" \
-  "sysroot-rosdep-install.sh:sysroot-rosdep-install" \
-  "sysroot-fix.py:sysroot-fix" \
-  "cross-colcon-build.sh:cross-colcon-build"; do
-  src="$TOOLCHAIN_DIR/${pair%:*}"
-  dst="/usr/local/bin/${pair#*:}"
-  [ -f "$src" ] && sudo ln -sf "$src" "$dst"
-done
 
 # Symlink agent skill files from toolchain to ros2_ws (auto-update, no duplication)
 ROS2_WS_DIR="${ROS2_WS:-/home/ubuntu/ros2_ws}"
