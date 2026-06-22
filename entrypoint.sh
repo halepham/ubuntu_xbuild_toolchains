@@ -1,64 +1,60 @@
 #!/bin/bash
-set -uo pipefail
 
-# Require ARM64_SYSROOT to be set (prevents accidental writes)
 : "${ARM64_SYSROOT:?ARM64_SYSROOT is not set}"
 
 echo "Updating DNS configuration in sysroot..."
 mkdir -p "${ARM64_SYSROOT}/etc"
-if ! sudo cp /etc/resolv.conf "${ARM64_SYSROOT}/etc/resolv.conf" 2>/dev/null; then
-    echo "[WARN] Could not update DNS in sysroot."
-fi
+sudo cp /etc/resolv.conf "${ARM64_SYSROOT}/etc/resolv.conf" 2>/dev/null || echo "[WARN] Could not update DNS in sysroot."
 echo "DNS updated in sysroot."
 
-# Toolchain auto-update: the GitHub repo root IS the toolchains directory.
-# Uses git archive to overlay the entire remote tree locally.
-# Detection uses git diff-tree between remote origin/main and local HEAD,
-# excluding sysroot-fix-append.yaml (gitignored locally).
-# Note: Failure here is non-fatal — container continues normally.
 TOOLCHAIN_DIR="${TOOLCHAINS_WS:-/home/ubuntu/toolchains}"
+
+# === Symlink helper scripts (always, before auto-update) ===
+for pair in \
+  "arm64-chroot.sh:arm64-chroot" \
+  "sysroot-rosdep-install.sh:sysroot-rosdep-install" \
+  "sysroot-fix.py:sysroot-fix" \
+  "cross-colcon-build.sh:cross-colcon-build"; do
+  src="$TOOLCHAIN_DIR/${pair%:*}"
+  dst="/usr/local/bin/${pair#*:}"
+  [ -f "$src" ] && sudo ln -sf "$src" "$dst"
+done
+
+# === Auto-update: fast-forward only, never block container ===
 if [ -d "$TOOLCHAIN_DIR/.git" ]; then
-    cd "$TOOLCHAIN_DIR"
+  cd "$TOOLCHAIN_DIR"
+  git config user.email "container@local" 2>/dev/null || true
+  git config user.name "Container" 2>/dev/null || true
 
-    # Public GitHub repo — no token needed.
-    git remote add origin https://github.com/renesas-rdk/ubuntu-xbuild-toolchains.git 2>/dev/null || true
+  if timeout 10 git fetch origin main >/dev/null 2>&1 && \
+     git pull --ff-only origin main >/dev/null 2>&1; then
+    echo "[INFO] Toolchain fast-forwarded."
 
-    if git remote get-url origin >/dev/null 2>&1; then
-        echo "[INFO] Checking for toolchain updates..."
-        if timeout 10 git fetch origin main >/dev/null 2>&1; then
-            # Use git diff-tree to list files changed between remote and local,
-            # excluding sysroot-fix-append.yaml (gitignored locally).
-            if git diff-tree --no-commit-id -r origin/main HEAD: 2>/dev/null | \
-                awk '{print $NF}' | grep -v -x 'sysroot-fix-append.yaml' | grep -q .; then
-                    echo "[INFO] Toolchain updates found. Applying..."
-                    # Overlay entire remote tree. Exclude append file so user
-                    # custom entries survive updates.
-                    git archive origin/main | tar xf - \
-                        -C "$TOOLCHAIN_DIR" --exclude=sysroot-fix-append.yaml
-                    # Re-apply local-only .gitignore entry (overlay may overwrite it)
-                    grep -qxF "sysroot-fix-append.yaml" .gitignore 2>/dev/null || \
-                        echo "sysroot-fix-append.yaml" >> .gitignore
-                    # Create new snapshot commit so subsequent diff-tree comparisons
-                    # correctly reflect the already-applied state.
-                    git add -A
-                    git commit -m "snapshot $(date +%Y%m%d-%H%M%S)" --allow-empty
-                    echo "[INFO] Toolchain synchronized."
-                    sudo /usr/local/bin/sysroot-rosdep-install || echo "[WARN] sysroot-rosdep-install failed, skipping."
-            else
-                if git rev-parse origin/main >/dev/null 2>&1; then
-                    echo "[INFO] Toolchain is up to date."
-                else
-                    echo "[INFO] Remote does not contain toolchains/ path. Skipping."
-                fi
-            fi
-        else
-            echo "[WARN] Could not fetch updates from remote (timeout 10s)."
-        fi
-    else
-        echo "[INFO] No git remote configured. Auto-update disabled."
-    fi
+    # Normalize product cmake files
+    product="${PRODUCT:-V2H}"
+    case "$product" in
+      V2H) [ -f v2h_cross.cmake ] && cp v2h_cross.cmake cross.cmake;;
+      V4H) [ -f v4h_cross.cmake ] && cp v4h_cross.cmake cross.cmake;;
+    esac
+
+    echo "[INFO] Toolchain synchronized."
+    /usr/local/bin/sysroot-fix || echo "[WARN] sysroot-fix failed, skipping."
+  else
+    # Timeout / offline / conflict — skip, container continues normally
+    echo "[WARN] Auto-update skipped — using local toolchain."
+  fi
+fi
+
+# === Symlink agent skill files ===
+ROS2_WS_DIR="${ROS2_WS:-/home/ubuntu/ros2_ws}"
+if [ -d "$ROS2_WS_DIR" ] && [ "$ROS2_WS_DIR" != "$TOOLCHAIN_DIR" ]; then
+  ln -sfn "$TOOLCHAIN_DIR/.vscode"       "$ROS2_WS_DIR/.vscode"       2>/dev/null
+  ln -sfn "$TOOLCHAIN_DIR/.github"       "$ROS2_WS_DIR/.github"       2>/dev/null
+  ln -sfn "$TOOLCHAIN_DIR/.claude"       "$ROS2_WS_DIR/.claude"       2>/dev/null
+  ln -sfn "$TOOLCHAIN_DIR/AGENTS.md"     "$ROS2_WS_DIR/AGENTS.md"     2>/dev/null
+  ln -sfn "$TOOLCHAIN_DIR/.clang-format" "$ROS2_WS_DIR/.clang-format" 2>/dev/null
+  echo "[INFO] Agent skill files symlinked to $ROS2_WS_DIR."
 fi
 
 echo "--- Startup Complete ---"
-
 exec "$@"
