@@ -38,7 +38,7 @@ if [ -d "$TOOLCHAIN_DIR/.git" ]; then
       [ -f .vscode/settings.json ] && cp .vscode/settings.json /tmp/settings.json.bak
       git archive origin/main | tar xf - --overwrite -C "$TOOLCHAIN_DIR" --exclude=sysroot-fix-append.yaml
       if [ -f /tmp/settings.json.bak ]; then
-        TOOLCHAIN_DIR="$TOOLCHAIN_DIR" python3 -c '
+        TOOLCHAIN_DIR="$TOOLCHAIN_DIR" python3 << 'PYEOF'
 import json, os
 path = os.path.join(os.environ["TOOLCHAIN_DIR"], ".vscode", "settings.json")
 with open("/tmp/settings.json.bak") as f: old = json.load(f)
@@ -46,7 +46,7 @@ if os.path.isfile(path):
     with open(path) as f: new = json.load(f)
 else:
     new = {}
-# Preserve user's board connection config across auto-update overlay.
+# Preserve board connection config across auto-update overlay.
 # Remote .vscode/settings.json may have different/default values;
 # we restore these fields so user keeps their target board settings.
 PRESERVED = ["TARGET_IP","TARGET_GDB_PORT","TARGET_USER","TARGET_PASSWORD",
@@ -55,7 +55,7 @@ PRESERVED = ["TARGET_IP","TARGET_GDB_PORT","TARGET_USER","TARGET_PASSWORD",
 for k in PRESERVED:
     if k in old: new[k] = old[k]
 with open(path, "w") as f: json.dump(new, f, indent=4)
-'
+PYEOF
         rm /tmp/settings.json.bak
       fi
       grep -qxF "sysroot-fix-append.yaml" .gitignore 2>/dev/null || echo "sysroot-fix-append.yaml" >> .gitignore
