@@ -20,60 +20,33 @@ for pair in \
   [ -f "$src" ] && sudo ln -sf "$src" "$dst"
 done
 
+# === Auto-update: fast-forward only, never block container ===
 if [ -d "$TOOLCHAIN_DIR/.git" ]; then
   cd "$TOOLCHAIN_DIR"
-  # Set git identity before any commit
   git config user.email "container@local" 2>/dev/null || true
   git config user.name "Container" 2>/dev/null || true
-  if git remote get-url origin >/dev/null 2>&1 && timeout 10 git fetch origin main >/dev/null 2>&1 && git rev-parse origin/main >/dev/null 2>&1; then
-    if ! git diff --quiet HEAD 2>/dev/null; then
-      echo "[WARN] Local toolchain has uncommitted changes — skipping auto-update."
-      echo "[WARN] Container will continue normally — user must resolve manually."
-    elif ! git diff --quiet HEAD origin/main 2>/dev/null; then
-      echo "[WARN] Local and remote toolchain diverged — skipping auto-update."
-      echo "[WARN] User must reset or merge manually before updates can be applied."
-    else
-      echo "[INFO] Toolchain updates found. Applying..."
-      rm -f /tmp/settings.json.bak
-      [ -f .vscode/settings.json ] && cp .vscode/settings.json /tmp/settings.json.bak
-      git archive origin/main | tar xf - --overwrite -C "$TOOLCHAIN_DIR" --exclude=sysroot-fix-append.yaml
-      if [ -f /tmp/settings.json.bak ]; then
-        TOOLCHAIN_DIR="$TOOLCHAIN_DIR" python3 << 'PYEOF'
-import json, os
-path = os.path.join(os.environ["TOOLCHAIN_DIR"], ".vscode", "settings.json")
-with open("/tmp/settings.json.bak") as f: old = json.load(f)
-if os.path.isfile(path):
-    with open(path) as f: new = json.load(f)
-else:
-    new = {}
-# Preserve board connection config across auto-update overlay.
-# Remote .vscode/settings.json may have different/default values;
-# we restore these fields so user keeps their target board settings.
-PRESERVED = ["TARGET_IP","TARGET_GDB_PORT","TARGET_USER","TARGET_PASSWORD",
-             "TARGET_ROS2_WS","NODE_PACKAGE_NAME","NODE_EXECUTABLE_NAME",
-             "LAUNCH_PACKAGE_NAME","LAUNCH_FILE_NAME"]
-for k in PRESERVED:
-    if k in old: new[k] = old[k]
-with open(path, "w") as f: json.dump(new, f, indent=4)
-PYEOF
-        rm /tmp/settings.json.bak
-      fi
-      grep -qxF "sysroot-fix-append.yaml" .gitignore 2>/dev/null || echo "sysroot-fix-append.yaml" >> .gitignore
-      # Normalize product cmake files before snapshot
-      product="${PRODUCT:-V2H}"
-      case "$product" in
-        V2H) [ -f v2h_cross.cmake ] && mv -f v2h_cross.cmake cross.cmake; rm -f v4h_cross.cmake ;;
-        V4H) [ -f v4h_cross.cmake ] && mv -f v4h_cross.cmake cross.cmake; rm -f v2h_cross.cmake ;;
-      esac
-      git add -A
-      git commit -m "snapshot $(date +%Y%m%d-%H%M%S)" --allow-empty
-      echo "[INFO] Toolchain synchronized."
-      /usr/local/bin/sysroot-fix || echo "[WARN] sysroot-fix failed, skipping."
-    fi
+
+  if timeout 10 git fetch origin main >/dev/null 2>&1 && \
+     git pull --ff-only origin main >/dev/null 2>&1; then
+    echo "[INFO] Toolchain fast-forwarded."
+
+    # Normalize product cmake files
+    product="${PRODUCT:-V2H}"
+    case "$product" in
+      V2H) [ -f v2h_cross.cmake ] && cp v2h_cross.cmake cross.cmake;;
+      V4H) [ -f v4h_cross.cmake ] && cp v4h_cross.cmake cross.cmake;;
+    esac
+
+    grep -qxF "sysroot-fix-append.yaml" .gitignore 2>/dev/null || echo "sysroot-fix-append.yaml" >> .gitignore
+    echo "[INFO] Toolchain synchronized."
+    /usr/local/bin/sysroot-fix || echo "[WARN] sysroot-fix failed, skipping."
+  else
+    # Timeout / offline / conflict — skip, container continues normally
+    echo "[WARN] Auto-update skipped — using local toolchain."
   fi
 fi
 
-# Symlink agent skill files from toolchain to ros2_ws (auto-update, no duplication)
+# === Symlink agent skill files ===
 ROS2_WS_DIR="${ROS2_WS:-/home/ubuntu/ros2_ws}"
 if [ -d "$ROS2_WS_DIR" ] && [ "$ROS2_WS_DIR" != "$TOOLCHAIN_DIR" ]; then
   ln -sfn "$TOOLCHAIN_DIR/.vscode"       "$ROS2_WS_DIR/.vscode"       2>/dev/null
