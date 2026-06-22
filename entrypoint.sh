@@ -37,7 +37,6 @@ if [ -d "$TOOLCHAIN_DIR/.git" ]; then
       V4H) [ -f v4h_cross.cmake ] && cp v4h_cross.cmake cross.cmake;;
     esac
 
-    grep -qxF "sysroot-fix-append.yaml" .gitignore 2>/dev/null || echo "sysroot-fix-append.yaml" >> .gitignore
     echo "[INFO] Toolchain synchronized."
     /usr/local/bin/sysroot-fix || echo "[WARN] sysroot-fix failed, skipping."
   else
