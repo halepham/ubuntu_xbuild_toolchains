@@ -46,10 +46,10 @@ remove_exec_depends() {
     log_step "Removing exec_depend entries from package.xml files"
     log_info "This can improve the speed of rosdep install by avoiding unnecessary runtime dependencies."
 
-    # Find all package.xml files and remove exec_depend lines
-    find "${workspace_path}/src" -name "package.xml" -type f | while read -r xml_file; do
-        # Remove exec_depend lines using sed
-        sed -i '/<exec_depend>/d' "$xml_file"
+    # Find all package.xml files and remove exec_depend lines. The copied
+    # workspace lives inside the sysroot and may be root-owned after rsync.
+    sudo find "${workspace_path}/src" -name "package.xml" -type f -print0 | while IFS= read -r -d '' xml_file; do
+        sudo sed -i '/<exec_depend>/d' "$xml_file"
     done
 
     printf "Removed exec_depend entries from package.xml files in ${workspace_path}/src\n"

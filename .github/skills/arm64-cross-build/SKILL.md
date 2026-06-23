@@ -26,7 +26,7 @@ Apply this skill for **any** of:
 
 | Item              | Value                                                |
 |-------------------|------------------------------------------------------|
-| Host              | Ubuntu dev container, `x86_64`                       |
+| Host              | Ubuntu dev container, `x86_64` or `arm64`            |
 | Target            | aarch64, Renesas ARM64, ROS 2 Jazzy                  |
 | Toolchain         | `/home/ubuntu/toolchains/cross.cmake`                |
 | Compiler          | `aarch64-linux-gnu-gcc` / `g++` (C++17)              |
@@ -100,7 +100,8 @@ Rules:
 
 ## Anti-patterns
 
-- `colcon build` (raw, no cross wrapper) — silently builds for x86_64.
+- `colcon build` (raw, no cross wrapper) — bypasses the target sysroot and
+  may link against the container rootfs instead of the board image ABI.
 - Adding `--cmake-args` for typical packages — the toolchain already
   configures everything needed.
 - Putting build artifacts anywhere except `build/`, `install/`, `log/`.
@@ -154,13 +155,14 @@ up a new image (e.g. after a sysroot bump).
 
 ## How the cross-build actually works (mental model)
 
-From the upstream RDK documentation:
+From the upstream RDK documentation and the multi-arch container setup:
 
-- The dev container is **AMD64**. Inside it, `$ARM64_SYSROOT` is an
-  **ARM64** root filesystem copied from the RZ/V2H RDK Linux image.
-- `arm64-chroot` enters that sysroot via `chroot` + **QEMU user-mode
-  emulation**, so `apt-get`, `rosdep`, post-install scripts, etc.
-  behave as if running on the board.
+- The dev container may be **AMD64** or **ARM64**. Inside it,
+  `$ARM64_SYSROOT` is always an **ARM64** root filesystem copied from the
+  RZ/V2H RDK Linux image.
+- `arm64-chroot` enters that sysroot via `chroot`. On AMD64 containers it
+  also uses **QEMU user-mode emulation**; on ARM64 containers the sysroot
+  commands run natively.
 - `cross-colcon-build` does **not** use the chroot — it cross-compiles
   on the host, linking against libraries inside `$ARM64_SYSROOT`.
 
@@ -176,8 +178,9 @@ Consequences the agent must respect:
   ```
 - **Only one chroot at a time.** Don't try to run two parallel
   `arm64-chroot` commands; the second will fail.
-- **QEMU is slow.** `apt`/`rosdep` inside the chroot can take minutes.
-  Don't assume hangs — stream output and wait.
+- **QEMU is slow on AMD64.** `apt`/`rosdep` inside the chroot can take
+  minutes on AMD64 containers. Native ARM64 containers avoid that emulation
+  cost, but still use the separated sysroot for target ABI correctness.
 - **ABI must match the board image.** Libraries pulled into the
   sysroot must be the same versions as on the running RDK Linux image,
   or the binary will load on the host sysroot but crash on the device.

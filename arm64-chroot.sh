@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # Description:
 #   This script provides a chroot environment for the ARM64 sysroot.
-#   It mounts necessary filesystems and uses QEMU for ARM64 emulation.
+#   It uses QEMU only when the container architecture is not ARM64.
 # Input Arguments:
 #   All arguments are passed to the chroot command.
 # -----------------------------------------------------------------------------
@@ -10,6 +10,22 @@
 set -e
 
 LOCKFILE="/tmp/arm64-chroot.lock"
+
+if [[ -z "${ARM64_SYSROOT:-}" ]]; then
+    echo "ARM64_SYSROOT is not set" >&2
+    exit 1
+fi
+
+if [[ ! -d "$ARM64_SYSROOT" ]]; then
+    echo "ARM64_SYSROOT does not exist: $ARM64_SYSROOT" >&2
+    exit 1
+fi
+
+container_arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
+use_qemu=0
+if [[ "$container_arch" != "arm64" && "$container_arch" != "aarch64" ]]; then
+    use_qemu=1
+fi
 
 # Check for existing lock
 if [ -f "$LOCKFILE" ]; then
@@ -29,23 +45,23 @@ echo $$ | sudo tee "$LOCKFILE" > /dev/null
 
 cleanup() {
     echo "Cleaning up..."
-    sudo umount -l $ARM64_SYSROOT/proc 2>/dev/null || true
-    sudo umount -l $ARM64_SYSROOT/sys 2>/dev/null || true
-    sudo umount -l $ARM64_SYSROOT/dev 2>/dev/null || true
+    sudo umount -l "$ARM64_SYSROOT/proc" 2>/dev/null || true
+    sudo umount -l "$ARM64_SYSROOT/sys" 2>/dev/null || true
+    sudo umount -l "$ARM64_SYSROOT/dev" 2>/dev/null || true
 
     # Sync after unmount
-	sync
+    sync
     sudo rm -f "$LOCKFILE"
-    echo "Cleanning up completed successfully."
+    echo "Cleaning up completed successfully."
 }
 
 trap cleanup EXIT INT TERM
 
 mount_chroot() {
     echo "Mounting filesystems..."
-    sudo mount -t proc proc $ARM64_SYSROOT/proc 2>/dev/null || true
-    sudo mount -t sysfs sysfs $ARM64_SYSROOT/sys 2>/dev/null || true
-    sudo mount -o bind /dev $ARM64_SYSROOT/dev 2>/dev/null || true
+    sudo mount -t proc proc "$ARM64_SYSROOT/proc" 2>/dev/null || true
+    sudo mount -t sysfs sysfs "$ARM64_SYSROOT/sys" 2>/dev/null || true
+    sudo mount -o bind /dev "$ARM64_SYSROOT/dev" 2>/dev/null || true
 
     echo "Mount chroot completed successfully."
 }
@@ -56,7 +72,17 @@ export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
 mount_chroot
-sudo update-binfmts --enable qemu-aarch64 2>/dev/null || true
+if [ "$use_qemu" -eq 1 ]; then
+    if [ ! -x "$ARM64_SYSROOT/usr/bin/qemu-aarch64-static" ]; then
+        echo "qemu-aarch64-static is required for $container_arch containers but was not found in the sysroot." >&2
+        exit 1
+    fi
+    sudo update-binfmts --enable qemu-aarch64 2>/dev/null || true
+else
+    echo "Native ARM64 container detected; entering sysroot without QEMU."
+fi
 echo "Entering ARM64 chroot environment..."
-echo -e "\033[32mExecuting command: \033[36msudo $@\033[0m"
-sudo chroot $ARM64_SYSROOT "$@"
+printf '\033[32mExecuting command: \033[36msudo'
+printf ' %q' "$@"
+printf '\033[0m\n'
+sudo chroot "$ARM64_SYSROOT" "$@"
