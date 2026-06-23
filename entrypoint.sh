@@ -1,17 +1,38 @@
 #!/bin/bash
 
-: "${ARM64_SYSROOT:?ARM64_SYSROOT is not set}"
-
-# Make the bind-mounted workspace writable by this user. ros2_ws is owned on the
-# host by whoever ran the setup script — often root (e.g. `sudo ... --build`) —
-# which leaves the non-root container user unable to write to it. Take ownership
-# when it isn't already ours; the host side keeps access (root always, or the
-# matching user). Uses the passwordless sudo the image already grants.
+# Align the container's `ubuntu` to the host owner of the bind-mounted ros2_ws
+# so it's editable from both sides without chmod (root-owned -> hand to ubuntu;
+# other UID -> re-map ubuntu to it). Done in one sudo that ends by dropping back
+# to ubuntu via setpriv and re-running this script, so `docker exec` still lands
+# as ubuntu (a usermod + second sudo would crash on the now-stale caller UID).
 ROS2_WS_DIR="${ROS2_WS:-/home/ubuntu/ros2_ws}"
-if [ -d "$ROS2_WS_DIR" ] && [ "$(stat -c %u "$ROS2_WS_DIR" 2>/dev/null)" != "$(id -u)" ]; then
-    echo "[INFO] Taking ownership of workspace '$ROS2_WS_DIR' for $(id -un)..."
-    sudo chown "$(id -u):$(id -g)" "$ROS2_WS_DIR" || echo "[WARN] Could not chown '$ROS2_WS_DIR'."
+if [ -d "$ROS2_WS_DIR" ]; then
+    ws_uid="$(stat -c %u "$ROS2_WS_DIR" 2>/dev/null || echo -1)"
+    ws_gid="$(stat -c %g "$ROS2_WS_DIR" 2>/dev/null || echo -1)"
+    if [ "$ws_uid" != "-1" ] && { [ "$ws_uid" != "$(id -u)" ] || [ "$ws_gid" != "$(id -g)" ]; }; then
+        echo "[INFO] Reconciling 'ubuntu' with workspace owner ${ws_uid}:${ws_gid}..."
+        exec sudo bash -c '
+            set -u
+            ws_uid=$1; ws_gid=$2; cur_uid=$3; cur_gid=$4; ws=$5; self=$6; shift 6
+            if [ "$ws_uid" = 0 ]; then
+                chown "$cur_uid:$cur_gid" "$ws" 2>/dev/null || true
+                drop_uid=$cur_uid; drop_gid=$cur_gid
+            else
+                groupmod -o -g "$ws_gid" ubuntu 2>/dev/null || true
+                usermod  -o -u "$ws_uid" -g "$ws_gid" ubuntu 2>/dev/null || true
+                # -xdev keeps re-owning on the home filesystem and never descends
+                # into the ros2_ws bind mount (a separate device).
+                find /home/ubuntu -xdev \( -uid "$cur_uid" -o -gid "$cur_gid" \) \
+                    -exec chown -h "$ws_uid:$ws_gid" {} + 2>/dev/null || true
+                drop_uid=$ws_uid; drop_gid=$ws_gid
+            fi
+            exec setpriv --reuid "$drop_uid" --regid "$drop_gid" --init-groups -- "$self" "$@"
+        ' bash "$ws_uid" "$ws_gid" "$(id -u)" "$(id -g)" "$ROS2_WS_DIR" "$0" "$@"
+    fi
 fi
+
+# Require ARM64_SYSROOT to be set (prevents accidental writes)
+: "${ARM64_SYSROOT:?ARM64_SYSROOT is not set}"
 
 echo "Updating DNS configuration in sysroot..."
 mkdir -p "${ARM64_SYSROOT}/etc"
