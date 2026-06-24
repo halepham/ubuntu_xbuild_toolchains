@@ -88,9 +88,9 @@ if [ -d "${CURRENT_WS}" ]; then
     log_info "Please wait..."
 
     arm64-chroot bash -c "export ROS_VERSION=2 && \
-        export ROS_PYTHON_VERSION=3 && \
-        export ROS_DISTRO=jazzy && \
-        rosdep install --from-paths /home/ubuntu/ros2_ws/src --ignore-src -r -y"
+export ROS_PYTHON_VERSION=3 && \
+export ROS_DISTRO=jazzy && \
+rosdep install --from-paths /home/ubuntu/ros2_ws/src --ignore-src -r -y"
 
     log_success "ROS2 packages installation completed successfully!"
 
