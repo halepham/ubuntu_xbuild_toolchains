@@ -57,6 +57,15 @@ remove_exec_depends() {
 
 # Copy ROS2 workspace to ARM64 SYSROOT
 if [ -d "${CURRENT_WS}" ]; then
+
+    # Check if the 'src' folder exists in the provided workspace
+    if [ ! -d "${CURRENT_WS}/src" ]; then
+        log_error "ROS2 workspace exists, but the 'src' folder was not found!"
+        log_error "Expected src folder at: ${CURRENT_WS}/src"
+        log_error "Please create the src folder or provide a valid ROS2 workspace."
+        exit 1
+    fi
+
     log_step "Copying ROS2 workspace to ARM64_SYSROOT"
     log_info "Source: ${CURRENT_WS}"
     log_info "Target: $ARM64_SYSROOT"
