@@ -15,6 +15,13 @@
     "cmake.cmakePath": "/usr/bin/cmake",
     "cmake.buildBeforeRun": false,
     "cmake.environment": {},
+    "terminal.integrated.profiles.linux": {
+        "SSH to Target": {
+            "path": "bash",
+            "args": ["-c", "sshpass -p ${config:TARGET_PASSWORD} ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new ${config:TARGET_USER}@${config:TARGET_IP}"],
+            "icon": "remote"
+        },
+    },
 
     "VsCodeTaskButtons.tasks": [
         {
