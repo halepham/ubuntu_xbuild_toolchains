@@ -77,6 +77,55 @@ if [ -d "$TOOLCHAIN_DIR/.git" ]; then
   fi
 fi
 
+# === Seed / merge per-user VS Code settings from the tracked template ===
+# settings.json is gitignored so auto-update is never blocked by user edits and
+# never clobbers them. The template is the source of truth for structure + new
+# keys; we overlay the user-owned values back on top so target/project config
+# survives every update.
+VSCODE_DIR="$TOOLCHAIN_DIR/.vscode"
+TEMPLATE="$VSCODE_DIR/settings.template.json"
+SETTINGS="$VSCODE_DIR/settings.json"
+if [ -f "$TEMPLATE" ]; then
+  if [ ! -f "$SETTINGS" ]; then
+    cp "$TEMPLATE" "$SETTINGS"
+    echo "[INFO] Seeded .vscode/settings.json from template."
+  elif command -v python3 >/dev/null 2>&1; then
+    if python3 - "$TEMPLATE" "$SETTINGS" <<'PYMERGE'; then
+import json, re, sys
+
+USER_KEYS = ["TARGET_IP", "TARGET_GDB_PORT", "TARGET_USER", "TARGET_PASSWORD",
+             "TARGET_ROS2_WS", "NODE_PACKAGE_NAME", "NODE_EXECUTABLE_NAME",
+             "LAUNCH_PACKAGE_NAME", "LAUNCH_FILE_NAME"]
+
+def load_jsonc(path):
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    # tolerate VS Code JSONC: // line comments and trailing commas
+    text = re.sub(r"(^|\s)//[^\n]*", r"\1", text)
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    return json.loads(text)
+
+template, settings = sys.argv[1], sys.argv[2]
+merged = load_jsonc(template)
+user = load_jsonc(settings)
+for k in USER_KEYS:
+    if k in user:
+        merged[k] = user[k]
+with open(settings + ".tmp", "w", encoding="utf-8") as f:
+    json.dump(merged, f, indent=4, ensure_ascii=False)
+    f.write("\n")
+PYMERGE
+      mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "[INFO] Merged template into .vscode/settings.json (user values preserved)."
+    else
+      rm -f "$SETTINGS.tmp"
+      echo "[WARN] settings.json merge skipped (invalid JSON?) — kept user file as-is."
+    fi
+  else
+    echo "[WARN] python3 not found — skipping settings.json template merge."
+  fi
+fi
+
 # === Symlink agent skill files ===
 if [ -d "$ROS2_WS_DIR" ] && [ "$ROS2_WS_DIR" != "$TOOLCHAIN_DIR" ]; then
   ln -sfn "$TOOLCHAIN_DIR/.vscode"       "$ROS2_WS_DIR/.vscode"

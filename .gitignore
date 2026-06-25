@@ -1,1 +1,5 @@
 sysroot-fix-append.yaml
+
+# Per-user/per-project VS Code config — seeded & merged from settings.template.json
+# by entrypoint.sh so auto-update never clobbers it (and never gets blocked by it).
+.vscode/settings.json
