@@ -48,6 +48,11 @@
             "tooltip": "Run the specified executable from the specified package on the target device. Please ensure NODE_PACKAGE_NAME and NODE_EXECUTABLE_NAME are configured correctly in settings.json"
         },
         {
+            "label": "$(cloud-download) Install Deps",
+            "task": "ROS2: Install Deps on Target (rosdep)",
+            "tooltip": "Install runtime dependencies on the target board via rosdep (over SSH), using the deployed install/ workspace"
+        },
+        {
             "label": "$(terminal) SSH to Target",
             "task": "ROS2: SSH to Target",
             "tooltip": "SSH to target device"

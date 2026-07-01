@@ -247,6 +247,20 @@
             "problemMatcher": []
         },
         {
+            "label": "ROS2: Install Deps on Target (rosdep)",
+            "type": "shell",
+            "command": "sshpass -p ${config:TARGET_PASSWORD} ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new ${config:TARGET_USER}@${config:TARGET_IP} 'echo ${config:TARGET_PASSWORD} | sudo -S -v && source /opt/ros/${env:ROS_DISTRO}/setup.bash && cd ${config:TARGET_ROS2_WS} && rosdep install --from-paths ./install/*/share -y -r --ignore-src'",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "ROS2: Check Package Versions (Sysroot and Board)",
             "type": "shell",
             "linux": {
