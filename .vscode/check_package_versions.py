@@ -113,31 +113,41 @@ def die(msg, code=1):
 # 1. Enumerate community dependencies from src/*/package.xml
 # -----------------------------------------------------------------------------
 def enumerate_community(src_dir):
-    """Return (own_names, community_deps) parsed from src/*/package.xml."""
-    xml_files = sorted(glob.glob(os.path.join(src_dir, "*", "package.xml")))
+    """Return (own_names, community_deps) parsed from all package.xml files under src_dir."""
+    xml_files = sorted(
+        glob.glob(os.path.join(src_dir, "**", "package.xml"), recursive=True)
+    )
+
     if not xml_files:
-        die(f"No package.xml found under {src_dir}/*/package.xml")
+        die(f"No package.xml found under {src_dir}")
 
     own_names = set()
     dep_names = set()
+
     for path in xml_files:
         try:
             root = ET.parse(path).getroot()
         except ET.ParseError as exc:
             warn(f"Skipping unparseable {path}: {exc}")
             continue
+
         name_el = root.find("name")
         if name_el is not None and name_el.text:
             own_names.add(name_el.text.strip())
+
         for tag in DEP_TAGS:
             for el in root.iter(tag):
                 if el.text and el.text.strip():
                     dep_names.add(el.text.strip())
 
     community = dep_names - own_names
-    info(f"Parsed {len(xml_files)} package.xml file(s): "
-         f"{len(own_names)} workspace package(s), "
-         f"{len(community)} community dependency name(s).")
+
+    info(
+        f"Parsed {len(xml_files)} package.xml file(s): "
+        f"{len(own_names)} workspace package(s), "
+        f"{len(community)} community dependency name(s)."
+    )
+
     return own_names, community
 
 
