@@ -399,6 +399,26 @@ def update_sysroot(sysroot, names):
     return res.returncode == 0
 
 
+def fix_sysroot(sysroot):
+    """Re-run `sysroot-fix` after a successful apt upgrade in the sysroot.
+
+    An apt upgrade reinstalls each package's exported CMake target files with
+    hardcoded absolute paths, so the relativisation applied at image-build time
+    (see sysroot-rosdep-install.sh) must be re-applied or cross builds resolve
+    the wrong prefixes. Runs the same `sysroot-fix` wrapper with ARM64_SYSROOT
+    pointed at this sysroot; a missing wrapper is a warning, not a hard failure.
+    """
+    env = dict(os.environ, ARM64_SYSROOT=sysroot)
+    info("Sysroot command: sysroot-fix")
+    try:
+        res = subprocess.run(["sysroot-fix"], env=env)
+    except FileNotFoundError:
+        warn("`sysroot-fix` not found on PATH; skipping CMake path fixups. "
+             "Cross builds may resolve absolute paths from the sysroot.")
+        return False
+    return res.returncode == 0
+
+
 def update_board(ip, user, password, names):
     """Upgrade the given packages to the LATEST available version on the board.
     `names` is a list of apt package names. Single SSH call. SHARED HARDWARE."""
@@ -516,7 +536,13 @@ def main():
         return 2
 
     step("Updating sysroot")
-    if not update_sysroot(sysroot, update_pkgs):
+    if update_sysroot(sysroot, update_pkgs):
+        # Only relativise CMake paths once the upgrade actually succeeded; a
+        # failed/partial apt run leaves nothing new to fix.
+        step("Fixing sysroot (sysroot-fix)")
+        if not fix_sysroot(sysroot):
+            warn("sysroot-fix reported a failure; check CMake paths manually.")
+    else:
         err("Sysroot update reported a failure.")
     step("Updating board")
     if not update_board(args.ip, args.user, args.password, update_pkgs):
