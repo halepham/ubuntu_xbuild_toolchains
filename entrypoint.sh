@@ -18,8 +18,9 @@ if [ -d "$ROS2_WS_DIR" ]; then
                 chown "$cur_uid:$cur_gid" "$ws" 2>/dev/null || true
                 drop_uid=$cur_uid; drop_gid=$cur_gid
             else
-                groupmod -o -g "$ws_gid" ubuntu 2>/dev/null || true
-                usermod  -o -u "$ws_uid" -g "$ws_gid" ubuntu 2>/dev/null || true
+                # Re-map ubuntu to the workspace owner (or create a new user if needed)
+                sed -i -E "s/^(ubuntu:[^:]*:)[0-9]+:[0-9]+:/\1${ws_uid}:${ws_gid}:/" /etc/passwd 2>/dev/null || true
+                sed -i -E "s/^(ubuntu:[^:]*:)[0-9]+:/\1${ws_gid}:/"                   /etc/group  2>/dev/null || true
                 # -xdev keeps re-owning on the home filesystem and never descends
                 # into the ros2_ws bind mount (a separate device).
                 find /home/ubuntu -xdev \( -uid "$cur_uid" -o -gid "$cur_gid" \) \
