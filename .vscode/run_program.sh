@@ -10,14 +10,16 @@ NONE='\033[0m'
 
 function print_usage() {
   echo -e "\n${GREEN}Usage${NONE}:"
-  echo -e "  ${BOLD}./run_program.sh${NONE} run TARGET_IP TARGET_USER SSHPASS PACKAGE EXECUTABLE_NAME [ARGS...]     # for ros2 run"
-  echo -e "  ${BOLD}./run_program.sh${NONE} launch TARGET_IP TARGET_USER SSHPASS PACKAGE LAUNCH_FILE [ARGS...]      # for ros2 launch"
+  echo -e "  ${BOLD}./run_program.sh${NONE} run TARGET_IP TARGET_USER SSHPASS DEST_PATH PACKAGE EXECUTABLE_NAME [ARGS...]     # for ros2 run"
+  echo -e "  ${BOLD}./run_program.sh${NONE} launch TARGET_IP TARGET_USER SSHPASS DEST_PATH PACKAGE LAUNCH_FILE [ARGS...]      # for ros2 launch"
   echo -e "\n${GREEN}TARGET_IP${NONE}:"
   echo -e "  ${NONE}IP address of remote target board."
   echo -e "\n${GREEN}TARGET_USER${NONE}:"
   echo -e "  ${NONE}User name."
   echo -e "\n${GREEN}SSHPASS${NONE}:"
   echo -e "  ${NONE}Password for ${TARGET_USER} user."
+  echo -e "\n${GREEN}DEST_PATH${NONE}:"
+  echo -e "  ${NONE}Workspace path on target where the install folder is deployed."
   echo -e "\n${GREEN}PACKAGE${NONE}:"
   echo -e "  ${NONE}Run a ROS2 node. Requires PACKAGE and EXECUTABLE. Use with ros2 run/launch."
   echo -e "\n${GREEN}EXECUTABLE_NAME${NONE}:"
@@ -39,8 +41,8 @@ function get_target_ros_env() {
     sort
 }
 
-# Check if there are at least 6 arguments
-if [ $# -lt 6 ]; then
+# Check if there are at least 7 arguments
+if [ $# -lt 7 ]; then
   echo -e "${RED}[Host] Not enough arguments.${NONE}"
   print_usage
   exit 1
@@ -61,11 +63,11 @@ ROS2_MODE_CMD="ros2 $MODE"
 TARGET_IP=$2
 TARGET_USER=$3
 SSHPASS=$4
-PACKAGE=$5
-EXECUTABLE=$6
-shift 6
+DEST_PATH=$5
+PACKAGE=$6
+EXECUTABLE=$7
+shift 7
 ARGS=$@
-ROS2_APP_CMD="$ROS2_MODE_CMD $PACKAGE $EXECUTABLE $ARGS"
 
 # Check ssh connection
 if ! sshpass -p "${SSHPASS}" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new ${TARGET_USER}@${TARGET_IP} "exit"; then
@@ -73,19 +75,32 @@ if ! sshpass -p "${SSHPASS}" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=ac
   exit 1
 fi
 
-# Check if install folder exists relative to the script location and copy it to remote /tmp if it does
+# Check if install folder exists relative to the script location and copy it to remote ${DEST_INSTALL} if it does
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/../install"
+DEST_INSTALL="${DEST_PATH}/install"
 
-if [ -d "$INSTALL_DIR" ]; then
-  echo -e "${GREEN}[Host] '$INSTALL_DIR' folder found. Synchronizing install folder${NONE}"
-  sudo rsync -avz --delete-during -e "sshpass -p "${SSHPASS}" ssh -o StrictHostKeyChecking=no" \
-    "$INSTALL_DIR/" \
-    "${TARGET_USER}@${TARGET_IP}:/tmp/install/"
-else
-  echo -e "${RED}[Host] '$INSTALL_DIR' folder not found. Skipping synchronization.${NONE}"
-  exit 1
+if sshpass -p "${SSHPASS}" ssh ${TARGET_USER}@${TARGET_IP} "[ ! -d '${DEST_INSTALL}' ]"; then
+  echo -e "${GREEN}[Host] '${DEST_INSTALL}' not found on target. Deploying...${NONE}"
+  if [ ! -d "$INSTALL_DIR" ]; then
+    echo -e "${RED}[Host] '$INSTALL_DIR' folder not found on host. Cannot deploy.${NONE}"
+    exit 1
+  fi
+  if ! bash "${SCRIPT_DIR}/deploy.sh" "${TARGET_IP}" "${TARGET_USER}" "${SSHPASS}" "${INSTALL_DIR}" "${DEST_PATH}"; then
+    echo -e "${RED}[Host] Deployment failed.${NONE}"
+    exit 1
+  fi
 fi
+
+# "-h"/"--help" switches to interactive collection: suggest the available
+# arguments and keep asking until the user enters a blank line. Any other value
+# (including empty) is passed through to the application as-is.
+if [ "$ARGS" = "-h" ] || [ "$ARGS" = "--help" ]; then
+  source "${SCRIPT_DIR}/prompt_app_args.sh"
+  prompt_app_args "$MODE" "$TARGET_IP" "$TARGET_USER" "$SSHPASS" "$PACKAGE" "$EXECUTABLE"
+  ARGS="$APP_ARGS"
+fi
+ROS2_APP_CMD="$ROS2_MODE_CMD $PACKAGE $EXECUTABLE $ARGS"
 
 # Get ROS environment from target
 echo -e "${GREEN}[Host] Fetching ROS environment from target...${NONE}"
@@ -114,11 +129,11 @@ sshpass -p "${SSHPASS}" ssh -tt ${TARGET_USER}@${TARGET_IP} " \
   fi; \
   source /opt/ros/jazzy/setup.bash; \
 
-  # Check if /tmp/install/setup.bash exists
-  if [ ! -f /tmp/install/setup.bash ]; then \
-    echo -e \"${RED}[Target] /tmp/install/setup.bash not found. Exiting.${NONE}\"; \
+  # Check if ${DEST_INSTALL}/setup.bash exists
+  if [ ! -f ${DEST_INSTALL}/setup.bash ]; then \
+    echo -e \"${RED}[Target] ${DEST_INSTALL}/setup.bash not found. Exiting.${NONE}\"; \
     exit 1; \
   fi; \
-  source /tmp/install/setup.bash; \
+  source ${DEST_INSTALL}/setup.bash; \
   ${ROS2_APP_CMD}; \
 "

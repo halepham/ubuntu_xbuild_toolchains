@@ -10,14 +10,16 @@ NONE='\033[0m'
 
 function print_usage() {
   echo -e "\n${GREEN}Usage${NONE}:"
-  echo -e "  ${BOLD}./start_target_gdbserver.sh${NONE} run TARGET_IP TARGET_USER SSHPASS PACKAGE EXECUTABLE_NAME SYSROOT PORT_NUMBER [ARGS...]                      # debug single node"
-  echo -e "  ${BOLD}./start_target_gdbserver.sh${NONE} launch TARGET_IP TARGET_USER SSHPASS PACKAGE LAUNCH_FILE SYSROOT DEBUG_EXECUTABLE PORT_NUMBER [ARGS...]      # for ros2 launch"
+  echo -e "  ${BOLD}./start_target_gdbserver.sh${NONE} run TARGET_IP TARGET_USER SSHPASS DEST_PATH PACKAGE EXECUTABLE_NAME SYSROOT PORT_NUMBER [ARGS...]                      # debug single node"
+  echo -e "  ${BOLD}./start_target_gdbserver.sh${NONE} launch TARGET_IP TARGET_USER SSHPASS DEST_PATH PACKAGE LAUNCH_FILE SYSROOT DEBUG_EXECUTABLE PORT_NUMBER [ARGS...]      # for ros2 launch"
   echo -e "\n${GREEN}TARGET_IP${NONE}:"
   echo -e "  ${NONE}IP address of remote target board."
   echo -e "\n${GREEN}TARGET_USER${NONE}:"
   echo -e "  ${NONE}User name."
   echo -e "\n${GREEN}SSHPASS${NONE}:"
   echo -e "  ${NONE}Password for ${TARGET_USER} user."
+  echo -e "\n${GREEN}DEST_PATH${NONE}:"
+  echo -e "  ${NONE}Workspace path on target where the install folder is deployed."
   echo -e "\n${GREEN}PACKAGE${NONE}:"
   echo -e "  ${NONE}Run a ROS2 node. Requires PACKAGE and EXECUTABLE. Use with ros2 run/launch."
   echo -e "\n${GREEN}EXECUTABLE_NAME${NONE}:"
@@ -50,22 +52,22 @@ fi
 
 # Determine mode and check appropriate number of arguments
 if [ "$1" = "run" ]; then
-  if [ $# -lt 7 ]; then
-    echo -e "${RED}[Host] Not enough arguments for 'run' mode. Expected at least 7, got $#.${NONE}"
+  if [ $# -lt 8 ]; then
+    echo -e "${RED}[Host] Not enough arguments for 'run' mode. Expected at least 8, got $#.${NONE}"
     print_usage
     exit 1
   fi
-  PORT_NUMBER=$8
+  PORT_NUMBER=$9
   MODE="run"
   ROS2_MODE_CMD="ros2 run --prefix 'gdbserver :${PORT_NUMBER}'"
 elif [ "$1" = "launch" ]; then
-  if [ $# -lt 8 ]; then
-    echo -e "${RED}[Host] Not enough arguments for 'launch' mode. Expected at least 8, got $#.${NONE}"
+  if [ $# -lt 9 ]; then
+    echo -e "${RED}[Host] Not enough arguments for 'launch' mode. Expected at least 9, got $#.${NONE}"
     print_usage
     exit 1
   fi
-  DEBUG_EXECUTABLE=$8
-  PORT_NUMBER=$9
+  DEBUG_EXECUTABLE=$9
+  PORT_NUMBER=${10}
   MODE="launch"
   ROS2_MODE_CMD="ros2 launch --launch-prefix 'gdbserver localhost:${PORT_NUMBER}' --launch-prefix-filter '${DEBUG_EXECUTABLE}'"
 else
@@ -77,19 +79,19 @@ fi
 TARGET_IP=$2
 TARGET_USER=$3
 SSHPASS=$4
-PACKAGE=$5
-EXECUTABLE=$6
-SDK_SYSROOT=$7
+DEST_PATH=$5
+PACKAGE=$6
+EXECUTABLE=$7
+SDK_SYSROOT=$8
 
 # Shift arguments based on mode
 if [ "$MODE" = "run" ]; then
-  shift 8
-else  # launch mode
   shift 9
+else  # launch mode
+  shift 10
 fi
 
 ARGS=$@
-ROS2_APP_CMD="$ROS2_MODE_CMD $PACKAGE $EXECUTABLE $ARGS"
 
 # Check ssh connection
 if ! sshpass -p "${SSHPASS}" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new ${TARGET_USER}@${TARGET_IP} "exit"; then
@@ -97,26 +99,39 @@ if ! sshpass -p "${SSHPASS}" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=ac
   exit 1
 fi
 
-# Check if install folder exists relative to the script location and copy it to remote /tmp if it does
+# Check if install folder exists relative to the script location and copy it to remote ${DEST_PATH} if it does
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/../install"
+DEST_INSTALL="${DEST_PATH}/install"
 
-if [ -d "$INSTALL_DIR" ]; then
-  echo -e "${GREEN}[Host] '$INSTALL_DIR' folder found. Synchronizing install folder${NONE}"
-  sudo rsync -avz --delete-during -e "sshpass -p ${SSHPASS} ssh -o StrictHostKeyChecking=no" \
-    "$INSTALL_DIR/" \
-    "${TARGET_USER}@${TARGET_IP}:/tmp/install/"
-else
-  echo -e "${RED}[Host] '$INSTALL_DIR' folder not found. Skipping synchronization.${NONE}"
-  exit 1
+if sshpass -p "${SSHPASS}" ssh ${TARGET_USER}@${TARGET_IP} "[ ! -d '${DEST_INSTALL}' ]"; then
+  echo -e "${GREEN}[Host] '${DEST_INSTALL}' not found on target. Deploying...${NONE}"
+  if [ ! -d "$INSTALL_DIR" ]; then
+    echo -e "${RED}[Host] '$INSTALL_DIR' folder not found on host. Cannot deploy.${NONE}"
+    exit 1
+  fi
+  if ! bash "${SCRIPT_DIR}/deploy.sh" "${TARGET_IP}" "${TARGET_USER}" "${SSHPASS}" "${INSTALL_DIR}" "${DEST_PATH}"; then
+    echo -e "${RED}[Host] Deployment failed.${NONE}"
+    exit 1
+  fi
 fi
+
+# "-h"/"--help" switches to interactive collection: suggest the available
+# arguments and keep asking until the user enters a blank line. Any other value
+# (including empty) is passed through to the application as-is.
+if [ "$ARGS" = "-h" ] || [ "$ARGS" = "--help" ]; then
+  source "${SCRIPT_DIR}/prompt_app_args.sh"
+  prompt_app_args "$MODE" "$TARGET_IP" "$TARGET_USER" "$SSHPASS" "$PACKAGE" "$EXECUTABLE"
+  ARGS="$APP_ARGS"
+fi
+ROS2_APP_CMD="$ROS2_MODE_CMD $PACKAGE $EXECUTABLE $ARGS"
 
 # Synchronize libraries
 echo -e "${GREEN}[Host] Synchronizing libraries...${NONE}"
 
 ### Synchronize Install libraries
 echo -e "${GREEN}[Host] Synchronizing install libraries...${NONE}"
-sudo rsync -az --delete-during "$INSTALL_DIR/" "${SDK_SYSROOT}/tmp/install/"
+sudo rsync -az --delete-during "$INSTALL_DIR/" "${SDK_SYSROOT}${DEST_INSTALL}/"
 
 # Get ROS environment from target
 echo -e "${GREEN}[Host] Fetching ROS environment from target...${NONE}"
@@ -146,11 +161,11 @@ if [ ! -f /opt/ros/jazzy/setup.bash ]; then
   exit 1;
 fi;
 source /opt/ros/jazzy/setup.bash;
-if [ ! -f /tmp/install/setup.bash ]; then
-  echo -e \"${RED}[Target] /tmp/install/setup.bash not found. Exiting.${NONE}\";
+if [ ! -f ${DEST_INSTALL}/setup.bash ]; then
+  echo -e \"${RED}[Target] ${DEST_INSTALL}/setup.bash not found. Exiting.${NONE}\";
   exit 1;
 fi;
-source /tmp/install/setup.bash;
+source ${DEST_INSTALL}/setup.bash;
 ${ROS2_APP_CMD};"
 
 # Connect to target board (Use option -tt to force tty allocation)

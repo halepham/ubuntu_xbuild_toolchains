@@ -14,8 +14,9 @@
                     "${config:TARGET_IP}",
                     "${config:TARGET_USER}",
                     "${config:TARGET_PASSWORD}",
-                    "${config:NODE_PACKAGE_NAME}",
-                    "${config:NODE_EXECUTABLE_NAME}",
+                    "${config:TARGET_ROS2_WS}",
+                    "${input:nodePackage}",
+                    "${input:nodeExecutable}",
                     "${config:TARGET_LOCAL_SYSROOT}",
                     "${config:TARGET_GDB_PORT}",
                     "${input:appArgs}"
@@ -59,10 +60,11 @@
                     "${config:TARGET_IP}",
                     "${config:TARGET_USER}",
                     "${config:TARGET_PASSWORD}",
-                    "${config:LAUNCH_PACKAGE_NAME}",
-                    "${config:LAUNCH_FILE_NAME}",
+                    "${config:TARGET_ROS2_WS}",
+                    "${input:launchPackage}",
+                    "${input:launchFile}",
                     "${config:TARGET_LOCAL_SYSROOT}",
-                    "${config:NODE_EXECUTABLE_NAME}",
+                    "${input:nodeExecutable}",
                     "${config:TARGET_GDB_PORT}",
                     "${input:appArgs}"
                 ]
@@ -121,8 +123,9 @@
                     "${config:TARGET_IP}",
                     "${config:TARGET_USER}",
                     "${config:TARGET_PASSWORD}",
-                    "${config:LAUNCH_PACKAGE_NAME}",
-                    "${config:LAUNCH_FILE_NAME}",
+                    "${config:TARGET_ROS2_WS}",
+                    "${input:launchPackage}",
+                    "${input:launchFile}",
                     "${input:appArgs}"
                 ]
             },
@@ -161,8 +164,9 @@
                     "${config:TARGET_IP}",
                     "${config:TARGET_USER}",
                     "${config:TARGET_PASSWORD}",
-                    "${config:NODE_PACKAGE_NAME}",
-                    "${config:NODE_EXECUTABLE_NAME}",
+                    "${config:TARGET_ROS2_WS}",
+                    "${input:nodePackage}",
+                    "${input:nodeExecutable}",
                     "${input:appArgs}"
                 ]
             },
@@ -194,10 +198,10 @@
             "label": "ROS2: Build Debug",
             "type": "shell",
             "command": "bash",
-            "args": ["-i", "-l", "-c", "export CMAKE_BUILD_TYPE=Debug && cross-colcon-build"],
+            "args": ["-i", "-l", "-c", "export CMAKE_BUILD_TYPE=Debug && cross-colcon-build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
             "group": {
                 "kind": "build",
-                "isDefault": false
+                "isDefault": true
             },
             "problemMatcher": ["$gcc"]
         },
@@ -205,7 +209,7 @@
             "label": "ROS2: Build Release",
             "type": "shell",
             "command": "bash",
-            "args": ["-i", "-l", "-c", "cross-colcon-build"],
+            "args": ["-i", "-l", "-c", "cross-colcon-build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -289,8 +293,53 @@
         {
             "type": "promptString",
             "id": "appArgs",
-            "description": "App arguments (leave empty if none)",
+            "description": "App arguments (leave empty if none): <name>:=<value> or -h/--help",
             "default": ""
+        },
+        {
+            // Provided by the "Tasks Shell Input" extension (augustocdias.tasks-shell-input).
+            // Lists packages on the target that ship a runnable executable.
+            "id": "nodePackage",
+            "type": "command",
+            "command": "shellCommand.execute",
+            "args": {
+                "command": "${workspaceFolder}/.vscode/list_target_ros2.sh packages ${config:TARGET_IP} ${config:TARGET_USER} ${config:TARGET_PASSWORD} ${config:TARGET_ROS2_WS}",
+                "cwd": "${workspaceFolder}",
+                "description": "Select the package (run)"
+            }
+        },
+        {
+            // Lists executables of the package picked in nodePackage.
+            "id": "nodeExecutable",
+            "type": "command",
+            "command": "shellCommand.execute",
+            "args": {
+                "command": "${workspaceFolder}/.vscode/list_target_ros2.sh executables ${config:TARGET_IP} ${config:TARGET_USER} ${config:TARGET_PASSWORD} ${config:TARGET_ROS2_WS} ${input:nodePackage}",
+                "cwd": "${workspaceFolder}",
+                "description": "Select the executable to run"
+            }
+        },
+        {
+            // Lists packages on the target that ship at least one launch file.
+            "id": "launchPackage",
+            "type": "command",
+            "command": "shellCommand.execute",
+            "args": {
+                "command": "${workspaceFolder}/.vscode/list_target_ros2.sh launch_packages ${config:TARGET_IP} ${config:TARGET_USER} ${config:TARGET_PASSWORD} ${config:TARGET_ROS2_WS}",
+                "cwd": "${workspaceFolder}",
+                "description": "Select the package (launch)"
+            }
+        },
+        {
+            // Lists launch files of the package picked in launchPackage.
+            "id": "launchFile",
+            "type": "command",
+            "command": "shellCommand.execute",
+            "args": {
+                "command": "${workspaceFolder}/.vscode/list_target_ros2.sh launch_files ${config:TARGET_IP} ${config:TARGET_USER} ${config:TARGET_PASSWORD} ${config:TARGET_ROS2_WS} ${input:launchPackage}",
+                "cwd": "${workspaceFolder}",
+                "description": "Select the launch file"
+            }
         }
     ]
 }

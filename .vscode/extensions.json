@@ -1,6 +1,7 @@
 {
     "recommendations": [
         "ms-vscode.cpptools-extension-pack",
-        "spencerwmiles.vscode-task-buttons"
+        "spencerwmiles.vscode-task-buttons",
+        "augustocdias.tasks-shell-input"
     ]
 }
