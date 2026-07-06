@@ -16,6 +16,12 @@
     "cmake.cmakePath": "/usr/bin/cmake",
     "cmake.buildBeforeRun": false,
     "cmake.environment": {},
+
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/build",
+        "--background-index",
+        "--header-insertion=never"
+    ],
     "terminal.integrated.profiles.linux": {
         "SSH to Target": {
             "path": "bash",
