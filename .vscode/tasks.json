@@ -195,6 +195,17 @@
             }
         },
         {
+            "label": "ROS2: Update Workspace",
+            "type": "shell",
+            "command": "bash",
+            "args": ["-i", "-l", "-c", "arm64-chroot apt update && sysroot-rosdep-install"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
             "label": "ROS2: Build Debug",
             "type": "shell",
             "command": "bash",
