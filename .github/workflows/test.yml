@@ -1,0 +1,82 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  # Behavior tests, run as root in a clean container to match the real image:
+  #   entrypoint_test.sh  - auto-update git edge cases (offline, diverged, etc.)
+  #   scripts_behavior.sh - guard / validation / locking logic of the wrappers
+  behavior:
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    steps:
+      - name: Install test dependencies
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            git python3 python3-yaml ca-certificates coreutils >/dev/null
+      - uses: actions/checkout@v4
+      - name: Entrypoint auto-update resilience
+        run: bash tests/entrypoint_test.sh
+      - name: Helper-script behavior
+        run: bash tests/scripts_behavior.sh
+
+  # Integration: last gate before a release ships. Delivers this commit to the
+  # released image via the auto-update path, then drives the real execution
+  # paths (entrypoint end-to-end, arm64-chroot, a real cross build).
+  #
+  # Gated to maintainer-only events (release / workflow_dispatch), never
+  # pull_request, so untrusted forks can't reach this privileged job. Safe to
+  # move to a self-hosted runner for image caching — swap `runs-on` for your
+  # labels; the test script skips the pull when the image is already local.
+  integration:
+    if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ghcr.io/renesas-rdk/rzv2h_ubuntu_xbuild:latest
+            product: V2H
+          - image: ghcr.io/renesas-rdk/rcarv4h_ubuntu_xbuild:latest
+            product: V4H
+    steps:
+      # The released image bundles a full Ubuntu + ROS sysroot; free headroom.
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          df -h /
+      - uses: actions/checkout@v4
+      # arm64-chroot runs arm64 binaries via qemu-aarch64-static, which needs
+      # binfmt handlers registered in the host kernel (no-op on arm64 hosts).
+      - name: Register QEMU binfmt handlers
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
+      - name: Log in to ghcr.io (best effort — public images pull anonymously)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || true
+      - name: Run this commit on the released image
+        run: bash tests/integration_image_test.sh "${{ matrix.image }}" "${{ matrix.product }}"
+
+  # Static lint. `--severity=warning` gates on real problems, not style notes.
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck >/dev/null
+      - name: Lint scripts and tests
+        run: |
+          shellcheck --severity=warning \
+            entrypoint.sh cross-colcon-build.sh arm64-chroot.sh \
+            sysroot-rosdep-install.sh \
+            tests/entrypoint_test.sh tests/scripts_behavior.sh \
+            tests/integration_image_test.sh tests/lib/assert.sh
