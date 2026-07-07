@@ -53,16 +53,32 @@ for pair in \
   [ -f "$src" ] && sudo ln -sf "$src" "$dst"
 done
 
-# === Auto-update: fast-forward only, never block container ===
+# === Auto-update: check out the latest vX.Y.Z release tag; never block container ===
+# Users track vetted releases, not the moving `main` branch. A bad commit on main
+# no longer reaches containers on restart — only a maintainer-cut release does.
+# Offline / no-tag / checkout failure is non-fatal: the container keeps the
+# toolchain baked into the image (itself a valid release).
 if [ -d "$TOOLCHAIN_DIR/.git" ]; then
   cd "$TOOLCHAIN_DIR"
   git config user.email "container@local" 2>/dev/null || true
   git config user.name "Container" 2>/dev/null || true
 
-  if timeout 10 git fetch origin main >/dev/null 2>&1 && \
-     git pull --ff-only origin main >/dev/null 2>&1; then
-    echo "[INFO] Toolchain fast-forwarded."
+  updated=0
+  if timeout 15 git fetch --tags --force origin >/dev/null 2>&1; then
+    # Latest release by version sort; strict vX.Y.Z only (no pre-release tags).
+    latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1)"
+    if [ -n "$latest" ] && git checkout -q -f "$latest" >/dev/null 2>&1; then
+      echo "[INFO] Toolchain checked out release $latest."
+      updated=1
+    else
+      echo "[WARN] No release tag found / checkout failed — using local toolchain."
+    fi
+  else
+    # Timeout / offline — skip, container continues normally
+    echo "[WARN] Auto-update skipped (offline) — using local toolchain."
+  fi
 
+  if [ "$updated" -eq 1 ]; then
     # Normalize product cmake files
     product="${PRODUCT:-V2H}"
     case "$product" in
@@ -72,9 +88,6 @@ if [ -d "$TOOLCHAIN_DIR/.git" ]; then
 
     echo "[INFO] Toolchain synchronized."
     /usr/local/bin/sysroot-fix || echo "[WARN] sysroot-fix failed, skipping."
-  else
-    # Timeout / offline / conflict — skip, container continues normally
-    echo "[WARN] Auto-update skipped — using local toolchain."
   fi
 fi
 
