@@ -8,7 +8,7 @@ building, deploying, and debugging software from an Ubuntu host system.
 
 This repository holds the toolchain files that drive that environment. They run
 inside the cross-build Docker container, where this repo is checked out at
-`/home/ubuntu/toolchains` and kept in sync with upstream on container start.
+`/home/ubuntu/toolchains` and updated to the latest tagged release on container start.
 
 The project is intended for developers who need a practical and reproducible
 environment for ARM64 application development, especially for robotics and edge
@@ -54,7 +54,7 @@ applications for the target board.
 | `sysroot-rosdep-install.sh` | Copies the ROS 2 workspace into the sysroot and installs build-time dependencies with `rosdep`. |
 | `sysroot-fix.py` + `sysroot-fix.yaml` | Relocate hardcoded absolute paths in the sysroot's exported CMake target files so cross builds resolve correctly. |
 | `sysroot-fix-append.yaml` | User-local sysroot fixups; gitignored, never overwritten by auto-update. |
-| `entrypoint.sh` | Container entrypoint: refreshes sysroot DNS, selects the board toolchain from `PRODUCT`, and auto-updates the toolchain from upstream. |
+| `entrypoint.sh` | Container entrypoint: refreshes sysroot DNS, selects the board toolchain from `PRODUCT`, and auto-updates the toolchain to the latest `vX.Y.Z` release tag on start. |
 | `env.conf` | Bash tab-completion for `colcon` and `cross-colcon-build`. |
 
 ## Documentation
