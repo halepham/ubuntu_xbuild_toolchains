@@ -59,7 +59,7 @@ done
 # Offline / no-tag / checkout failure is non-fatal: the container keeps the
 # toolchain baked into the image (itself a valid release).
 if [ -d "$TOOLCHAIN_DIR/.git" ]; then
-  cd "$TOOLCHAIN_DIR"
+  cd "$TOOLCHAIN_DIR" || { echo "ERROR: cannot cd into $TOOLCHAIN_DIR" >&2; exit 1; }
   git config user.email "container@local" 2>/dev/null || true
   git config user.name "Container" 2>/dev/null || true
 
